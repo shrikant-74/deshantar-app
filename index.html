@@ -457,38 +457,29 @@ html,body{
 // ── CONFIG ────────────────────────────────────────────────────
 const GAS_URL = "https://script.google.com/macros/s/AKfycbwaWcJj7YqvbSlWBME5XmLma_A0RM8lNYv596W9YyT4BJbdlYFAmr-TVF1iqJqjkkDhlA/exec";
 
-// ── GAS API CALLER ─────────────────────────────────────────────
-// Uses text/plain content-type to bypass CORS preflight
-function callGAS(fn, params) {
-  return fetch(GAS_URL + "?fn=" + fn, {
-    method: "POST",
-    headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify(params || {})
-  }).then(r => r.json());
-}
+// ── SIMPLE GAS CALLER — no Proxy, no CORS issues ──────────────
+// Instead of google.script.run, we call functions directly
+function gasCall(fn, params, onSuccess, onError) {
+  const url = fn === "getDashboardData"
+    ? GAS_URL + "?fn=" + fn          // GET for dashboard
+    : GAS_URL + "?fn=" + fn;         // POST for submit
 
-// ── Replace google.script.run with fetch calls ─────────────────
-const google = {
-  script: {
-    run: new Proxy({}, {
-      get(_, fn) {
-        let successCb, failCb;
-        const runner = {
-          withSuccessHandler(cb) { successCb = cb; return runner; },
-          withFailureHandler(cb) { failCb = cb; return runner; },
-        };
-        return new Proxy(runner, {
-          get(t, prop) { return t[prop]; },
-          apply(t, thisArg, args) {
-            callGAS(fn, args[0] || {})
-              .then(d => { if(successCb) successCb(d); })
-              .catch(e => { if(failCb) failCb(e); else console.error(e); });
-          }
-        });
-      }
-    })
-  }
-};
+  const options = fn === "getDashboardData"
+    ? { method: "GET" }
+    : {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(params || {})
+      };
+
+  fetch(url, options)
+    .then(r => r.json())
+    .then(d => { if (onSuccess) onSuccess(d); })
+    .catch(e => {
+      console.error("GAS error [" + fn + "]:", e);
+      if (onError) onError(e);
+    });
+}
 
 const $=id=>document.getElementById(id);
 const v=id=>{const e=$(id);return e?e.value.trim():""};
@@ -526,7 +517,7 @@ function badge(status){
     "Confirmed":"confirmed","Lead":"lead","Quote Sent":"quote",
     "Travelled":"travelled","Cancelled":"cancelled"
   };
-  return \`<span class="badge \${map[status]||"lead"}">\${status}</span>\`;
+  return `<span class="badge ${map[status]||"lead"}">${status}</span>`;
 }
 function greet(){
   const h=new Date().getHours();
@@ -542,45 +533,41 @@ function loadDashboard(){
   $("dash-date").textContent = now.toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"});
   setLoader(true,"Loading dashboard...");
 
-  google.script.run
-    .withSuccessHandler(d=>{
-      setLoader(false);
-      if(d.error){ showToast("❌ "+d.error,"err"); return; }
+  gasCall("getDashboardData", {}, function(d){
+    setLoader(false);
+    if(d.error){ showToast("❌ "+d.error,"err"); return; }
 
-      $("kpi-total").textContent     = d.totalBookings||0;
-      $("kpi-month").textContent     = (d.thisMonth||0)+" this month";
-      $("kpi-confirmed").textContent = d.confirmed||0;
-      $("kpi-leads").textContent     = (d.leads||0)+" leads/quotes";
-      $("kpi-profit").textContent    = fmt(d.netProfit);
-      $("kpi-margin").textContent    = (d.margin||0)+"% margin";
-      $("kpi-balance").textContent   = fmt(d.totalBalance);
-      $("last-updated").textContent  = "Updated: "+d.lastUpdated;
+    $("kpi-total").textContent     = d.totalBookings||0;
+    $("kpi-month").textContent     = (d.thisMonth||0)+" this month";
+    $("kpi-confirmed").textContent = d.confirmed||0;
+    $("kpi-leads").textContent     = (d.leads||0)+" leads/quotes";
+    $("kpi-profit").textContent    = fmt(d.netProfit);
+    $("kpi-margin").textContent    = (d.margin||0)+"% margin";
+    $("kpi-balance").textContent   = fmt(d.totalBalance);
+    $("last-updated").textContent  = "Updated: "+d.lastUpdated;
 
-      // Recent bookings
-      const list = $("recent-list");
-      if(!d.recent||d.recent.length===0){
-        list.innerHTML='<div class="empty-state">No bookings yet.<br>Tap New Booking to get started!</div>';
-        return;
-      }
-      list.innerHTML = '<div class="recent-hdr"><span>Recent Bookings</span><span style="font-size:11px;color:var(--grey)">Last '+d.recent.length+'</span></div>' +
-        d.recent.map(r=>\`
-          <div class="recent-row">
-            <div class="recent-avatar">✈️</div>
-            <div class="recent-info">
-              <div class="recent-name">\${r.name}</div>
-              <div class="recent-dest">\${r.dest} · \${r.id}</div>
-            </div>
-            <div class="recent-right">
-              <div class="recent-amt">\${fmt(r.rev)}</div>
-              \${badge(r.stat)}
-            </div>
-          </div>\`).join("");
-    })
-    .withFailureHandler(e=>{
-      setLoader(false);
-      showToast("❌ "+e.message,"err");
-    })
-    .getDashboardData();
+    const list = $("recent-list");
+    if(!d.recent||d.recent.length===0){
+      list.innerHTML='<div class="empty-state">No bookings yet.<br>Tap New Booking to get started!</div>';
+      return;
+    }
+    const rows = d.recent.map(function(r){
+      return '<div class="recent-row">'
+        +'<div class="recent-avatar">✈️</div>'
+        +'<div class="recent-info">'
+        +'<div class="recent-name">'+r.name+'</div>'
+        +'<div class="recent-dest">'+r.dest+' · '+r.id+'</div>'
+        +'</div>'
+        +'<div class="recent-right">'
+        +'<div class="recent-amt">'+fmt(r.rev)+'</div>'
+        +badge(r.stat)
+        +'</div></div>';
+    }).join("");
+    list.innerHTML='<div class="recent-hdr"><span>Recent Bookings</span><span style="font-size:11px;color:var(--grey)">Last '+d.recent.length+'</span></div>'+rows;
+  }, function(e){
+    setLoader(false);
+    showToast("❌ "+(e.message||"Failed to load"),"err");
+  });
 }
 
 // ── SUBMIT BOOKING ────────────────────────────────────────────
@@ -597,8 +584,16 @@ function submitForm(){
     if(!v(id)){showToast("⚠️ "+msg,"err");$(id).focus();return}
   }
   setLoader(true,"Saving booking...");
-  google.script.run
-    .withSuccessHandler(r=>{
+  gasCall("submitWebBooking", {
+      custName:v("custName"),mobile:v("mobile"),email:v("email"),
+      city:v("city"),source:v("source"),destination:v("destination"),
+      serviceType:v("serviceType"),status:v("status"),
+      travelDate:v("travelDate"),returnDate:v("returnDate"),
+      pax:v("pax"),assigned:v("assigned"),
+      revenue:v("revenue"),cost:v("cost"),received:v("received"),
+      payMode:v("payMode"),remarks:v("remarks"),
+      supplier:v("supplier"),suppAmt:v("suppAmt"),suppStatus:v("suppStatus"),
+    }, r=>{
       setLoader(false);
       if(r.success){
         showToast("✅ "+r.message,"ok",5000);
