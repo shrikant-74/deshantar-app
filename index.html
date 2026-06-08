@@ -279,8 +279,9 @@ function logout() {
   updateDots();
   $("pin-error").textContent = "";
   $("pin-user-label").textContent = "Select User";
-  $("btn-shrikant").className = "pin-btn";
-  $("btn-prashant").className = "pin-btn";
+  var BASE = "padding:12px 8px;border-radius:12px;color:#fff;font-size:14px;font-weight:600;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;background:rgba(255,255,255,.1);border:2px solid rgba(255,255,255,.25);";
+  if($("btn-shrikant")) $("btn-shrikant").style.cssText = BASE;
+  if($("btn-prashant")) $("btn-prashant").style.cssText = BASE;
   showScreen("pin");
 }
 
@@ -367,8 +368,13 @@ function selectUser(name) {
   updateDots();
   $("pin-error").textContent = "";
   $("pin-user-label").textContent = name + " — Enter PIN";
-  $("btn-shrikant").className = "pin-btn" + (name==="Shrikant" ? " user-selected" : "");
-  $("btn-prashant").className = "pin-btn" + (name==="Prashant" ? " user-selected" : "");
+  var BASE = "padding:12px 8px;border-radius:12px;color:#fff;font-size:14px;font-weight:600;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;";
+  $("btn-shrikant").style.cssText = BASE + (name==="Shrikant"
+    ? "background:rgba(255,255,255,.4);border:2px solid #fff;"
+    : "background:rgba(255,255,255,.1);border:2px solid rgba(255,255,255,.25);");
+  $("btn-prashant").style.cssText = BASE + (name==="Prashant"
+    ? "background:rgba(255,255,255,.4);border:2px solid #fff;"
+    : "background:rgba(255,255,255,.1);border:2px solid rgba(255,255,255,.25);");
 }
 
 function pinInput(digit) {
