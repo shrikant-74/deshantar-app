@@ -454,10 +454,33 @@ html,body{
 <div class="toast" id="toast"></div>
 
 <script>
-// ── CONFIG: paste your Apps Script URL here ──────────────────
-const GAS_URL = "PASTE_YOUR_GAS_URL_HERE";
+// ── CONFIG ────────────────────────────────────────────────────
+const GAS_URL = "https://script.google.com/macros/s/AKfycbwaWcJj7YqvbSlWBME5XmLma_A0RM8lNYv596W9YyT4BJbdlYFAmr-TVF1iqJqjkkDhlA/exec";
 
-// Replace google.script.run with fetch calls
+// ── GAS API CALLER using JSONP (avoids CORS) ──────────────────
+function callGAS(fn, params, onSuccess, onError) {
+  const cbName = "cb_" + fn + "_" + Date.now();
+  const script = document.createElement("script");
+
+  window[cbName] = function(data) {
+    delete window[cbName];
+    document.head.removeChild(script);
+    if (onSuccess) onSuccess(data);
+  };
+
+  script.onerror = function() {
+    delete window[cbName];
+    document.head.removeChild(script);
+    if (onError) onError(new Error("Network error"));
+  };
+
+  // Encode params as URL parameter
+  const encoded = encodeURIComponent(JSON.stringify(params || {}));
+  script.src = GAS_URL + "?fn=" + fn + "&params=" + encoded + "&callback=" + cbName;
+  document.head.appendChild(script);
+}
+
+// ── Replace google.script.run with JSONP calls ─────────────────
 const google = {
   script: {
     run: new Proxy({}, {
@@ -467,19 +490,10 @@ const google = {
           withSuccessHandler(cb) { successCb = cb; return runner; },
           withFailureHandler(cb) { failCb = cb; return runner; },
         };
-        // Return a function that accepts params and calls GAS via fetch
         return new Proxy(runner, {
           get(t, prop) { return t[prop]; },
           apply(t, thisArg, args) {
-            const url = GAS_URL + "?fn=" + fn;
-            fetch(url, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(args[0] || {})
-            })
-            .then(r => r.json())
-            .then(d => { if(successCb) successCb(d); })
-            .catch(e => { if(failCb) failCb(e); else console.error(e); });
+            callGAS(fn, args[0] || {}, successCb, failCb);
           }
         });
       }
