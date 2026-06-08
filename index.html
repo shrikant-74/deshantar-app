@@ -457,30 +457,17 @@ html,body{
 // ── CONFIG ────────────────────────────────────────────────────
 const GAS_URL = "https://script.google.com/macros/s/AKfycbwaWcJj7YqvbSlWBME5XmLma_A0RM8lNYv596W9YyT4BJbdlYFAmr-TVF1iqJqjkkDhlA/exec";
 
-// ── GAS API CALLER using JSONP (avoids CORS) ──────────────────
-function callGAS(fn, params, onSuccess, onError) {
-  const cbName = "cb_" + fn + "_" + Date.now();
-  const script = document.createElement("script");
-
-  window[cbName] = function(data) {
-    delete window[cbName];
-    document.head.removeChild(script);
-    if (onSuccess) onSuccess(data);
-  };
-
-  script.onerror = function() {
-    delete window[cbName];
-    document.head.removeChild(script);
-    if (onError) onError(new Error("Network error"));
-  };
-
-  // Encode params as URL parameter
-  const encoded = encodeURIComponent(JSON.stringify(params || {}));
-  script.src = GAS_URL + "?fn=" + fn + "&params=" + encoded + "&callback=" + cbName;
-  document.head.appendChild(script);
+// ── GAS API CALLER ─────────────────────────────────────────────
+// Uses text/plain content-type to bypass CORS preflight
+function callGAS(fn, params) {
+  return fetch(GAS_URL + "?fn=" + fn, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify(params || {})
+  }).then(r => r.json());
 }
 
-// ── Replace google.script.run with JSONP calls ─────────────────
+// ── Replace google.script.run with fetch calls ─────────────────
 const google = {
   script: {
     run: new Proxy({}, {
@@ -493,7 +480,9 @@ const google = {
         return new Proxy(runner, {
           get(t, prop) { return t[prop]; },
           apply(t, thisArg, args) {
-            callGAS(fn, args[0] || {}, successCb, failCb);
+            callGAS(fn, args[0] || {})
+              .then(d => { if(successCb) successCb(d); })
+              .catch(e => { if(failCb) failCb(e); else console.error(e); });
           }
         });
       }
